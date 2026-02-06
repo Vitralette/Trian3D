@@ -178,3 +178,43 @@ axis equal tight;
 
 fprintf('\n--- Visualization Complete ---\n');
 fprintf('Generated 3 figures with different elevation visualizations.\n');
+
+%% ========================================================================
+%  SECTION: MODIFY ELEVATION DATA (PLACEHOLDER FOR FUTURE EDITS)
+%  ========================================================================
+% ADD YOUR MODIFICATIONS HERE
+% Examples:
+%   elevationData{1} = elevationData{1} + 10;  % Raise tile 1 by 10m
+%   elevationData{1}(500:600, 500:600) = 150;  % Create a plateau
+%   elevationData{1} = imgaussfilt(elevationData{1}, 3);  % Smooth terrain
+% =========================================================================
+
+%% Save edited data as *_geotiffinfo_edited.mat and *_readgeoraster_edited.mat files
+outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
+
+% Create output folder if it doesn't exist
+if ~exist(outputFolder, 'dir')
+    mkdir(outputFolder);
+    fprintf('Created output folder: %s\n', outputFolder);
+end
+
+fprintf('\n--- Saving Edited Data ---\n');
+for i = 1:length(tifBaseNames)
+    baseName = tifBaseNames{i};
+    
+    % Save geotiffinfo as *_geotiffinfo_edited.mat
+    geoInfoEdited = geoInfo{i};
+    geoInfoFile = fullfile(outputFolder, [baseName '_geotiffinfo_edited.mat']);
+    save(geoInfoFile, 'geoInfoEdited');
+    fprintf('  Saved: %s_geotiffinfo_edited.mat\n', baseName);
+    
+    % Save elevation data as *_readgeoraster_edited.mat (same format as original: A and R)
+    A = elevationData{i};
+    R = [];  % Placeholder, not used since we get spatial info from geotiffinfo
+    rasterFile = fullfile(outputFolder, [baseName '_readgeoraster_edited.mat']);
+    save(rasterFile, 'A', 'R');
+    fprintf('  Saved: %s_readgeoraster_edited.mat\n', baseName);
+    fprintf('    Elevation range: %.2f to %.2f\n', min(A(:)), max(A(:)));
+end
+
+fprintf('\n--- Edit files saved. Run export_geotiff.m to generate TIF files ---\n');

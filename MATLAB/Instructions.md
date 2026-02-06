@@ -18,3 +18,10 @@ What we want to do
          
     4. We need a matlab script that reproduces the eleation data in a surface plot or something similar 
 
+DONE 
+
+
+Next Steps
+
+1. From the Trian Project we additional "objects" as .vec , those a are lines drawn onto the elevation data 
+2. in the next step we want to display those lines ontop of the elevation data 
