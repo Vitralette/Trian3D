@@ -35,3 +35,8 @@ lets build a test modification to the tiles
 
 
 
+Next i want to implement the editing process ,
+
+lets create a new script for an example edit, i want to take the two tiles , then define a groundtrack from bottom left to top  right so diagonal line across the two tiles, then we define a width of 50m which we apply to the line, so we have a "racetrack" going from bottom left to top right , then we want to edit the eleveantion data in that racetrack to create a canyon , so reduce the elevation form the orginal data by -100 m 
+
+the flow should be run trian3dhack -> apply the canyon changes (produces _edited files) -> then also plot the edited file to visaulize the changes -> then we can run the export_geotiff to produce the tiff we can load in trian3d
