@@ -6,7 +6,7 @@
 % Note: Since the Mapping Toolbox is not available, we use pre-generated
 % .mat files containing the geotiffinfo and readgeoraster outputs.
 %
-% Author: Generated for Trian3D Sample Project
+% Author: Tim Jusko
 % Date: 2026-02-06
 
 clear; clc; close all;

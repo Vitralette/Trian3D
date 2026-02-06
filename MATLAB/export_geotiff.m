@@ -6,7 +6,7 @@
 %   1. Run trian3dhack.m first to load, visualize, edit, and save *_edit.mat
 %   2. Run this script to convert *_edit.mat to *_matlab.tif
 %
-% Author: Generated for Trian3D Sample Project
+% Author: Tim Jusko
 % Date: 2026-02-06
 
 clear; clc; close all;

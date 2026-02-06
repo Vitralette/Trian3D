@@ -4,7 +4,7 @@
 %
 % Trees are placed at equidistant intervals (default: 20m)
 %
-% Author: Generated for Trian3D Sample Project
+% Author: Tim Jusko
 % Date: 2026-02-06
 
 clear; clc; close all;
@@ -298,8 +298,9 @@ function [lat, lon] = utm2wgs84(easting, northing, zone, hemisphere)
         y = northing;
     end
     
-    % Central meridian
-    lon0 = (zone - 1) * 6 - 180 + 3;
+    % Central meridian (in radians)
+    lon0_deg = (zone - 1) * 6 - 180 + 3;
+    lon0 = deg2rad(lon0_deg);
     
     % Footpoint latitude
     M = y / k0;

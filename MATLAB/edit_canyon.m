@@ -6,7 +6,7 @@
 %   - Track width: 50m
 %   - Elevation reduction: -100m
 %
-% Author: Generated for Trian3D Sample Project
+% Author: Tim Jusko
 % Date: 2026-02-06
 
 clear; clc; close all;
