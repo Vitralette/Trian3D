@@ -25,3 +25,13 @@ Next Steps
 
 1. From the Trian Project we additional "objects" as .vec , those a are lines drawn onto the elevation data 
 2. in the next step we want to display those lines ontop of the elevation data 
+
+
+DONE 
+
+
+
+lets build a test modification to the tiles 
+
+
+
