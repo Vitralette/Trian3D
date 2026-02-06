@@ -13,7 +13,7 @@ clear; clc; close all;
 
 %% Configuration
 dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
-outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Modified');
+outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Export');
 
 % Create output folder if it doesn't exist
 if ~exist(outputFolder, 'dir')

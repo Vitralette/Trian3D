@@ -12,7 +12,7 @@
 clear; clc; close all;
 
 %% Define paths to data files
-dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject');
+dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Raw');
 
 % Define the base names of the TIF files (without extension)
 tifBaseNames = {
@@ -113,59 +113,6 @@ end
 %% Create coordinate grids for plotting
 [X, Y] = meshgrid(linspace(xMin, xMax, nCols), linspace(yMax, yMin, nRows));
 
-%% Plot 1: 3D Surface Plot
-figure('Name', 'Elevation Surface Plot', 'Position', [100 100 1200 800]);
-
-subplot(1, 2, 1);
-surf(X, Y, mergedElevation, 'EdgeColor', 'none');
-colormap(parula);
-cb = colorbar; cb.Label.String = 'Elevation (m)';
-xlabel('Easting (m)');
-ylabel('Northing (m)');
-zlabel('Elevation (m)');
-title('3D Elevation Surface');
-axis tight;
-view(45, 30);
-lighting gouraud;
-camlight('headlight');
-
-%% Plot 2: 2D Color Map (Top-down view)
-subplot(1, 2, 2);
-imagesc([xMin xMax], [yMax yMin], mergedElevation);
-colormap(parula);
-cb = colorbar; cb.Label.String = 'Elevation (m)';
-xlabel('Easting (m)');
-ylabel('Northing (m)');
-title('Elevation Map (Top View)');
-axis xy;
-axis equal tight;
-
-%% Alternative: Simple mesh plot (if demcmap is not available)
-figure('Name', 'Simple Elevation Mesh', 'Position', [150 150 800 600]);
-
-% Downsample for better visualization if data is very large
-downsampleFactor = max(1, floor(max(size(mergedElevation)) / 500));
-if downsampleFactor > 1
-    X_ds = X(1:downsampleFactor:end, 1:downsampleFactor:end);
-    Y_ds = Y(1:downsampleFactor:end, 1:downsampleFactor:end);
-    Z_ds = mergedElevation(1:downsampleFactor:end, 1:downsampleFactor:end);
-    fprintf('Downsampled by factor of %d for visualization\n', downsampleFactor);
-else
-    X_ds = X;
-    Y_ds = Y;
-    Z_ds = mergedElevation;
-end
-
-mesh(X_ds, Y_ds, Z_ds);
-colormap(parula);
-cb = colorbar; cb.Label.String = 'Elevation (m)';
-xlabel('Easting (m)');
-ylabel('Northing (m)');
-zlabel('Elevation (m)');
-title('Digital Elevation Model - Mesh Plot');
-axis tight;
-view(45, 30);
-
 %% Contour plot
 figure('Name', 'Elevation Contours', 'Position', [200 200 800 600]);
 contourf(X, Y, mergedElevation, 20);
@@ -177,5 +124,5 @@ title('Elevation Contour Map');
 axis equal tight;
 
 fprintf('\n--- Visualization Complete ---\n');
-fprintf('Generated 3 figures with different elevation visualizations.\n');
+fprintf('Generated contour plot of elevation data.\n');
 fprintf('\nNext step: Run edit_canyon.m to apply terrain modifications.\n');
