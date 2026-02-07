@@ -60,7 +60,7 @@ params.turn_r.radius = 100;
 params.turn_r.angle = 40;
 params.turn_r.direction = 'right';
 
-params.climb.length = 175;              % meters
+params.climb.length = 150;              % meters
 params.climb.gradient = 8;              % percent
 
 params.descent.length = 150;            % meters
@@ -68,6 +68,10 @@ params.descent.gradient = 8;            % percent
 
 %% Corridor Width
 corridorWidth = 50;  % meters
+
+%% Transition Segment (blends back to original terrain at end of course)
+transition.maxGradient = 1;     % percent (maximum slope for transition)
+transition.minLength = 100;     % meters (minimum transition length)
 
 %% Display Configuration
 fprintf('=== Course Structure Definition ===\n\n');
@@ -85,7 +89,8 @@ fprintf('  Straight: %.0f m\n', params.straight.length);
 fprintf('  Turn: %.0f m radius, %.0f deg\n', params.turn.radius, params.turn.angle);
 fprintf('  Climb: %.0f m, %.0f%% gradient\n', params.climb.length, params.climb.gradient);
 fprintf('  Descent: %.0f m, %.0f%% gradient\n', params.descent.length, params.descent.gradient);
-fprintf('  Corridor width: %.0f m\n\n', corridorWidth);
+fprintf('  Corridor width: %.0f m\n', corridorWidth);
+fprintf('  Transition: max %.0f%% gradient, min %.0f m length\n\n', transition.maxGradient, transition.minLength);
 
 fprintf('Sequence rules:\n');
 fprintf('  Force start with straight: %s\n', mat2str(forceStartStraight));
@@ -95,6 +100,7 @@ fprintf('  Force end with straight: %s\n', mat2str(forceEndStraight));
 courseStructure.eventPool = eventPool;
 courseStructure.params = params;
 courseStructure.corridorWidth = corridorWidth;
+courseStructure.transition = transition;
 courseStructure.forceStartStraight = forceStartStraight;
 courseStructure.forceEndStraight = forceEndStraight;
 

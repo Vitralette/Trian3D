@@ -37,6 +37,14 @@ fprintf('Loading track geometry from: %s\n', geometryFile);
 geomData = load(geometryFile);
 geom = geomData.trackGeometry;
 
+%% Load course structure for transition parameters
+structureFile = fullfile(outputFolder, 'course_structure.mat');
+if ~exist(structureFile, 'file')
+    error('Course structure file not found. Run define_course_structure.m first.');
+end
+structData = load(structureFile);
+transition = structData.courseStructure.transition;
+
 % Extract geometry parameters
 waypoints = geom.waypoints;
 corridorWidth = geom.corridorWidth;
@@ -95,6 +103,17 @@ fprintf('  Dense track points: %d\n', size(trackPoints, 1));
 fprintf('  Flight profile range: %.1f to %.1f m (relative)\n', ...
     min(trackPoints(:,3)), max(trackPoints(:,3)));
 
+%% Store end of flight path info for transition calculation
+flightPathEndX = trackPoints(end, 1);
+flightPathEndY = trackPoints(end, 2);
+flightPathEndZ = trackPoints(end, 3);  % Relative elevation at end of flight path
+flightPathEndDist = trackPoints(end, 4);
+
+% Calculate heading at end of track (from last two waypoints)
+lastWP = waypoints(end);
+secondLastWP = waypoints(end-1);
+endHeading = atan2d(lastWP.y - secondLastWP.y, lastWP.x - secondLastWP.x);
+
 %% Load all tiles and get reference elevation at track start
 fprintf('\nLoading tiles...\n');
 numTiles = length(tifBaseNames);
@@ -127,6 +146,50 @@ fprintf('\nStart point terrain elevation: %.1f m\n', startTerrainElev);
 % Flight path starts at z=0 (relative), terrain should be referenceAGL below that
 baseTerrainLevel = startTerrainElev;
 fprintf('Base terrain level at start: %.1f m\n', baseTerrainLevel);
+
+%% Add transition segment to blend back to original terrain at exit
+% This prevents cliffs/walls where the modified corridor meets original terrain
+fprintf('\n--- Adding Transition Segment ---\n');
+
+% Get original terrain elevation at projected exit point
+projectedEndX = flightPathEndX + transition.minLength * cosd(endHeading);
+projectedEndY = flightPathEndY + transition.minLength * sind(endHeading);
+endTerrainElev = getTerrainElevation(projectedEndX, projectedEndY, elevationData, geoInfo);
+
+% Calculate required z to match original terrain:
+% Modified terrain = baseTerrainLevel + flightProfileZ
+% We need: baseTerrainLevel + targetZ = endTerrainElev
+% So: targetZ = endTerrainElev - baseTerrainLevel
+targetEndZ = endTerrainElev - baseTerrainLevel;
+requiredZChange = targetEndZ - flightPathEndZ;
+
+fprintf('  Flight path ends at z=%.1f m (relative)\n', flightPathEndZ);
+fprintf('  Original terrain at exit: %.1f m\n', endTerrainElev);
+fprintf('  Required z change: %.1f m to match original terrain\n', requiredZChange);
+
+% Calculate transition length based on gradient limit
+minLengthNeeded = abs(requiredZChange) / (transition.maxGradient / 100);
+transitionLength = max(transition.minLength, minLengthNeeded);
+actualGradient = abs(requiredZChange) / transitionLength * 100;
+
+fprintf('  Transition length: %.0f m (%.1f%% gradient)\n', transitionLength, actualGradient);
+
+% Generate transition track points
+numTransitionPoints = max(2, ceil(transitionLength));
+for j = 1:numTransitionPoints
+    t = j / numTransitionPoints;  % 0 to 1 (exclusive of 0, inclusive of 1)
+    
+    px = flightPathEndX + t * transitionLength * cosd(endHeading);
+    py = flightPathEndY + t * transitionLength * sind(endHeading);
+    pz = flightPathEndZ + t * requiredZChange;  % Linearly interpolate z
+    dist = flightPathEndDist + t * transitionLength;
+    
+    trackPoints = [trackPoints; px, py, pz, dist];
+end
+
+fprintf('  Transition points added: %d\n', numTransitionPoints);
+fprintf('  Final z: %.1f m (should match original terrain offset: %.1f m)\n', ...
+    trackPoints(end, 3), targetEndZ);
 
 %% Process each tile - reshape terrain along track
 fprintf('\nReshaping terrain along track...\n');
@@ -188,9 +251,9 @@ for i = 1:numTiles
             
             % Target terrain elevation:
             % - At start (flightProfileZ=0): terrain = baseTerrainLevel
-            % - During climb (flightProfileZ>0): terrain DROPS (so pilot climbs)
-            % - During descent (flightProfileZ<0): terrain RISES (so pilot descends)
-            targetTerrainElev = baseTerrainLevel - flightProfileZ;
+            % - During climb (flightProfileZ>0): terrain RISES (so pilot climbs to follow)
+            % - During descent (flightProfileZ<0): terrain DROPS (so pilot descends to follow)
+            targetTerrainElev = baseTerrainLevel + flightProfileZ;
             
             % Calculate blend factor based on distance from track center
             if minDist <= halfWidth
@@ -293,8 +356,8 @@ eventColors = struct(...
     'turn', [1.0 0.0 1.0], ...
     'climb', [1.0 0.5 0.0], ...
     'descent', [0.0 0.8 0.8], ...         % Cyan
-    'transition_up', [0.6 0.6 0.6], ...   % Gray
-    'transition_down', [0.6 0.6 0.6]);    % Gray
+    'transition_up', [0.5 0.5 0.5], ...   % Dark Gray
+    'transition_down', [0.5 0.5 0.5]);    % Dark Gray
 
 for i = 2:length(waypoints)
     wp1 = waypoints(i-1);
@@ -305,13 +368,29 @@ for i = 2:length(waypoints)
     else
         c = [0.5 0.5 0.5];
     end
-    plot([wp1.x, wp2.x], [wp1.y, wp2.y], '-', 'LineWidth', 3, 'Color', c);
+    % Make transition segments thicker and dashed for visibility
+    if contains(segType, 'transition')
+        plot([wp1.x, wp2.x], [wp1.y, wp2.y], '--', 'LineWidth', 5, 'Color', c);
+    else
+        plot([wp1.x, wp2.x], [wp1.y, wp2.y], '-', 'LineWidth', 3, 'Color', c);
+    end
 end
 
 plot(waypoints(1).x, waypoints(1).y, 'o', 'MarkerSize', 14, 'MarkerFaceColor', [0 0.8 0], ...
     'MarkerEdgeColor', 'k', 'LineWidth', 2);
 plot(waypoints(end).x, waypoints(end).y, 's', 'MarkerSize', 14, 'MarkerFaceColor', [0.8 0 0], ...
     'MarkerEdgeColor', 'k', 'LineWidth', 2);
+
+% Plot transition segment (from flight path end to actual corridor end)
+transitionStartIdx = find(trackPoints(:,4) > flightPathEndDist, 1);
+if ~isempty(transitionStartIdx)
+    transitionX = trackPoints(transitionStartIdx:end, 1);
+    transitionY = trackPoints(transitionStartIdx:end, 2);
+    plot(transitionX, transitionY, '--', 'LineWidth', 4, 'Color', [0.5 0.5 0.5]);
+    % Mark the true corridor end
+    plot(trackPoints(end,1), trackPoints(end,2), 'd', 'MarkerSize', 12, ...
+        'MarkerFaceColor', [0.5 0.5 0.5], 'MarkerEdgeColor', 'k', 'LineWidth', 2);
+end
 
 %% Plot elevation profile along track
 figure('Name', 'Track Elevation Profile', 'Position', [250 150 800 400]);

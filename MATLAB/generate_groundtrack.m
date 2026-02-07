@@ -2,7 +2,7 @@
 % This script takes a course structure (from define_course_structure.m) and
 % generates a random EVENT SEQUENCE from the event pool, then builds the track.
 %
-% REROLL: Change the 'randomSeed' value to generate a different sequence!
+% Interactive mode: View the track, then choose to REROLL or SAVE.
 %
 % Author: Tim Jusko
 % Date: 2026-02-07
@@ -13,18 +13,10 @@ clear; clc; close all;
 dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Raw');
 editedFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
 
-%% ========================================================================
-%  REROLL CONTROL - Change this seed to generate a different SEQUENCE!
-%  ========================================================================
-randomSeed = 99;  % <-- CHANGE THIS TO REROLL THE SEQUENCE
-%  ========================================================================
+%% Initial seed
+randomSeed = 1;  % Starting seed (will increment on reroll)
 
-rng(randomSeed);
-fprintf('=== Ground Track Generator ===\n');
-fprintf('Random seed: %d\n', randomSeed);
-fprintf('(Change seed to reroll the event sequence)\n\n');
-
-%% Load Course Structure
+%% Load Course Structure (once, outside loop)
 structureFile = fullfile(editedFolder, 'course_structure.mat');
 if ~exist(structureFile, 'file')
     error('Course structure file not found. Run define_course_structure.m first.');
@@ -34,56 +26,11 @@ load(structureFile, 'courseStructure');
 eventPool = courseStructure.eventPool;
 params = courseStructure.params;
 corridorWidth = courseStructure.corridorWidth;
+transition = courseStructure.transition;
 forceStartStraight = courseStructure.forceStartStraight;
 forceEndStraight = courseStructure.forceEndStraight;
 
-%% Generate Random Event Sequence from Pool
-fprintf('Generating random event sequence from pool...\n');
-
-% Build list of all events from pool
-allEvents = {};
-for i = 1:size(eventPool, 1)
-    eventType = eventPool{i, 1};
-    eventCount = eventPool{i, 2};
-    for j = 1:eventCount
-        allEvents{end+1} = eventType;
-    end
-end
-
-% Shuffle the events
-shuffledIdx = randperm(length(allEvents));
-eventSequence = allEvents(shuffledIdx);
-
-% Handle forced start/end straights
-if forceStartStraight
-    % Find a straight and move it to the front
-    straightIdx = find(strcmp(eventSequence, 'straight'), 1);
-    if ~isempty(straightIdx) && straightIdx ~= 1
-        eventSequence([1, straightIdx]) = eventSequence([straightIdx, 1]);
-    end
-end
-
-if forceEndStraight
-    % Find a straight (not the first one) and move it to the end
-    straightIndices = find(strcmp(eventSequence, 'straight'));
-    if length(straightIndices) > 1
-        lastStraightIdx = straightIndices(end);
-        if lastStraightIdx ~= length(eventSequence)
-            eventSequence([lastStraightIdx, end]) = eventSequence([end, lastStraightIdx]);
-        end
-    elseif length(straightIndices) == 1 && ~forceStartStraight
-        % Only one straight, move it to end
-        straightIdx = straightIndices(1);
-        if straightIdx ~= length(eventSequence)
-            eventSequence([straightIdx, end]) = eventSequence([end, straightIdx]);
-        end
-    end
-end
-
-fprintf('Generated sequence: %s\n', strjoin(eventSequence, ' -> '));
-fprintf('Total events: %d\n\n', length(eventSequence));
-
-%% Load terrain extent
+%% Load terrain data (once, outside loop)
 tifBaseNames = {
     'dgm1_32_495_5802_1_nw_2023'
     'dgm1_32_496_5802_1_nw_2023'
@@ -122,32 +69,91 @@ terrainHeight = yMaxTerrain - yMinTerrain;
 
 fprintf('Terrain extent: %.0f x %.0f m\n\n', terrainWidth, terrainHeight);
 
-%% Generate Track by Processing Events
-% SMART START: Position near one end, heading towards the other end
-% This maximizes usable track length on a rectangular terrain
+%% ========================================================================
+%  INTERACTIVE LOOP - Generate, view, reroll or save
+%  ========================================================================
+userDone = false;
+figHandle = [];
 
-margin = 100;  % meters from terrain edge (reduced for tight terrain)
+while ~userDone
+    clc;
+    rng(randomSeed);
+    fprintf('=== Ground Track Generator ===\n');
+    fprintf('Random seed: %d\n', randomSeed);
+    fprintf('=========================================\n\n');
 
-% For a wide terrain (width > height), start on left/right edge
-% For a tall terrain (height > width), start on top/bottom edge
-if terrainWidth > terrainHeight
-    % Wide terrain: start on left side, head right (east)
-    startX = xMinTerrain + margin + rand() * 100;
-    startY = yMinTerrain + terrainHeight/3 + rand() * terrainHeight/3;  % Middle third
-    heading = (rand() - 0.5) * 30;  % Generally east, +/- 15 degrees
-else
-    % Tall terrain: start on bottom, head north
-    startX = xMinTerrain + terrainWidth/3 + rand() * terrainWidth/3;
-    startY = yMinTerrain + margin + rand() * 100;
-    heading = 90 + (rand() - 0.5) * 30;  % Generally north
-end
+    %% Generate Random Event Sequence from Pool
+    fprintf('Generating random event sequence from pool...\n');
+    
+    % Build list of all events from pool
+    allEvents = {};
+    for i = 1:size(eventPool, 1)
+        eventType = eventPool{i, 1};
+        eventCount = eventPool{i, 2};
+        for j = 1:eventCount
+            allEvents{end+1} = eventType;
+        end
+    end
+    
+    % Shuffle the events
+    shuffledIdx = randperm(length(allEvents));
+    eventSequence = allEvents(shuffledIdx);
+    
+    % Handle forced start/end straights
+    if forceStartStraight
+        % Find a straight and move it to the front
+        straightIdx = find(strcmp(eventSequence, 'straight'), 1);
+        if ~isempty(straightIdx) && straightIdx ~= 1
+            eventSequence([1, straightIdx]) = eventSequence([straightIdx, 1]);
+        end
+    end
 
-% Normalize heading to 0-360
-heading = mod(heading, 360);
+    if forceEndStraight
+        % Find a straight (not the first one) and move it to the end
+        straightIndices = find(strcmp(eventSequence, 'straight'));
+        if length(straightIndices) > 1
+            lastStraightIdx = straightIndices(end);
+            if lastStraightIdx ~= length(eventSequence)
+                eventSequence([lastStraightIdx, end]) = eventSequence([end, lastStraightIdx]);
+            end
+        elseif length(straightIndices) == 1 && ~forceStartStraight
+            % Only one straight, move it to end
+            straightIdx = straightIndices(1);
+            if straightIdx ~= length(eventSequence)
+                eventSequence([straightIdx, end]) = eventSequence([end, straightIdx]);
+            end
+        end
+    end
 
-% Initialize track as waypoints
-waypoints = [];
-waypoints(1).x = startX;
+    fprintf('Generated sequence: %s\n', strjoin(eventSequence, ' -> '));
+    fprintf('Total events: %d\n\n', length(eventSequence));
+
+    %% Generate Track by Processing Events
+    % SMART START: Position near one end, heading towards the other end
+    % This maximizes usable track length on a rectangular terrain
+
+    margin = 100;  % meters from terrain edge (reduced for tight terrain)
+
+    % For a wide terrain (width > height), start on left/right edge
+    % For a tall terrain (height > width), start on top/bottom edge
+    if terrainWidth > terrainHeight
+        % Wide terrain: start on left side, head right (east)
+        startX = xMinTerrain + margin + rand() * 100;
+        startY = yMinTerrain + terrainHeight/3 + rand() * terrainHeight/3;  % Middle third
+        heading = (rand() - 0.5) * 30;  % Generally east, +/- 15 degrees
+    else
+        % Tall terrain: start on bottom, head north
+        startX = xMinTerrain + terrainWidth/3 + rand() * terrainWidth/3;
+        startY = yMinTerrain + margin + rand() * 100;
+        heading = 90 + (rand() - 0.5) * 30;  % Generally north
+    end
+
+    % Normalize heading to 0-360
+    heading = mod(heading, 360);
+
+    % Initialize track as waypoints
+    waypoints = [];
+    waypoints(1).x = startX;
 waypoints(1).y = startY;
 waypoints(1).z = 0;  % Relative elevation (will be carved into terrain)
 waypoints(1).type = 'start';
@@ -376,59 +382,6 @@ for i = 1:length(eventSequence)
     fprintf('\n');
 end
 
-%% Add transition segment to return to original terrain elevation
-% This prevents cliffs/walls at the end of the course
-fprintf('Adding transition segment to blend back to original terrain...\n');
-
-if abs(currentZ) > 0.1  % Only add if we're not already at original level
-    % Calculate required gradient to return to z=0
-    % Use a gentle transition (max 5% gradient, adjust length as needed)
-    maxTransitionGradient = 5;  % percent
-    
-    % Calculate minimum length needed at max gradient
-    minLength = abs(currentZ) / (maxTransitionGradient / 100);
-    
-    % Use at least 100m, or whatever is needed for smooth transition
-    transitionLength = max(100, minLength);
-    
-    % Actual gradient (may be gentler than max if we use longer segment)
-    transitionGradient = abs(currentZ) / transitionLength * 100;
-    
-    % Elevation change to get back to z=0
-    if currentZ > 0
-        % We're above original, need to descend
-        elevChange = -currentZ;
-        transitionType = 'transition_down';
-    else
-        % We're below original, need to climb
-        elevChange = -currentZ;  % This will be positive (climbing back up)
-        transitionType = 'transition_up';
-    end
-    
-    % Calculate end point
-    endX = currentX + transitionLength * cosd(currentHeading);
-    endY = currentY + transitionLength * sind(currentHeading);
-    endZ = 0;  % Back to original terrain level
-    
-    % Add waypoint
-    wp.x = endX;
-    wp.y = endY;
-    wp.z = endZ;
-    wp.type = transitionType;
-    waypoints(end+1) = wp;
-    
-    % Update state
-    currentX = endX;
-    currentY = endY;
-    currentZ = endZ;
-    
-    fprintf('  Type: %s\n', upper(transitionType));
-    fprintf('  Length: %.0f m, Gradient: %.1f%%, Elev change: %.1f m\n', transitionLength, transitionGradient, elevChange);
-    fprintf('  (Returns terrain to original elevation for smooth exit)\n\n');
-else
-    fprintf('  No transition needed (already at original elevation)\n\n');
-end
-
 %% Calculate total track length
 totalLength = 0;
 for i = 2:length(waypoints)
@@ -507,7 +460,10 @@ end
                    linspace(yMaxTerrain, yMinTerrain, nRowsTotal));
 
 %% Contour plot
-figure('Name', sprintf('Generated Track (Seed: %d)', randomSeed), 'Position', [200 200 900 700]);
+if ~isempty(figHandle) && isvalid(figHandle)
+    close(figHandle);
+end
+figHandle = figure('Name', sprintf('Generated Track (Seed: %d)', randomSeed), 'Position', [200 200 900 700]);
 contourf(X, Y, mergedElevation, 20);
 colormap(parula);
 cb = colorbar; cb.Label.String = 'Elevation (m)';
@@ -555,14 +511,31 @@ for i = 2:length(waypoints)
     end
 end
 
-% Plot start and end markers
-plot(waypoints(1).x, waypoints(1).y, 'o', 'MarkerSize', 14, 'MarkerFaceColor', [0 0.8 0], ...
-    'MarkerEdgeColor', 'k', 'LineWidth', 2, 'DisplayName', 'Start');
-plot(waypoints(end).x, waypoints(end).y, 's', 'MarkerSize', 14, 'MarkerFaceColor', [0.8 0 0], ...
-    'MarkerEdgeColor', 'k', 'LineWidth', 2);
+    % Plot start and end markers
+    plot(waypoints(1).x, waypoints(1).y, 'o', 'MarkerSize', 14, 'MarkerFaceColor', [0 0.8 0], ...
+        'MarkerEdgeColor', 'k', 'LineWidth', 2, 'DisplayName', 'Start');
+    plot(waypoints(end).x, waypoints(end).y, 's', 'MarkerSize', 14, 'MarkerFaceColor', [0.8 0 0], ...
+        'MarkerEdgeColor', 'k', 'LineWidth', 2);
+
+    %% User Decision: Reroll or Save
+    fprintf('\n=== Track Generated (Seed: %d) ===\n', randomSeed);
+    fprintf('  [R] Reroll - generate new random track\n');
+    fprintf('  [S] Save   - keep this track and continue\n');
+    userChoice = input('Your choice: ', 's');
+    
+    if strcmpi(userChoice, 'S')
+        % Save and exit
+        fprintf('Saving track with seed %d...\n', randomSeed);
+        userDone = true;
+    else
+        % Reroll: increment seed, loop again (figure closed at start of next iteration)
+        randomSeed = randomSeed + 1;
+        fprintf('\nRerolling with new seed %d...\n\n', randomSeed);
+    end
+    
+end  % End of while ~userDone loop
 
 fprintf('\n=== Complete ===\n');
-fprintf('To reroll: Change randomSeed and rerun this script.\n');
 fprintf('Next step: Run edit_elevation.m to carve the track into terrain.\n');
 
 %% ========================================================================
@@ -643,4 +616,38 @@ function dist = pointToSegmentDist(p, a, b)
     t = max(0, min(1, dot(ap, ab) / dot(ab, ab)));
     projection = a + t * ab;
     dist = norm(p - projection);
+end
+
+%% ========================================================================
+%  FUNCTION: getTerrainElevAtPoint
+%  Gets terrain elevation at a specific X,Y coordinate from tile data
+%  ========================================================================
+function elev = getTerrainElevAtPoint(x, y, elevationData, geoInfo)
+    elev = NaN;
+    numTiles = length(elevationData);
+    
+    for i = 1:numTiles
+        bbox = geoInfo{i}.BoundingBox;
+        xMin = bbox(1,1); xMax = bbox(2,1);
+        yMin = bbox(1,2); yMax = bbox(2,2);
+        
+        if x >= xMin && x <= xMax && y >= yMin && y <= yMax
+            % Point is in this tile
+            [rows, cols] = size(elevationData{i});
+            cellSizeX = (xMax - xMin) / cols;
+            cellSizeY = (yMax - yMin) / rows;
+            
+            col = round((x - xMin) / cellSizeX) + 1;
+            row = round((yMax - y) / cellSizeY) + 1;  % Y is inverted in raster
+            
+            col = max(1, min(cols, col));
+            row = max(1, min(rows, row));
+            
+            elev = elevationData{i}(row, col);
+            return;
+        end
+    end
+    
+    % If not found, return NaN (or could extrapolate)
+    warning('Point (%.1f, %.1f) not found in any tile', x, y);
 end
