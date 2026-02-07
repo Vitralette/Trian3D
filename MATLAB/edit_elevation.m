@@ -72,7 +72,7 @@ fprintf('  Blend width: %.0f m\n', blendWidth);
 
 fprintf('\nBuilding dense track path with elevation profile...\n');
 
-trackPoints = [];  % [x, y, targetTerrainZ, distanceAlongTrack]
+trackPoints = [];  % [x, y, targetTerrainZ, distanceAlongTrack, isTransition]
 cumulativeDistance = 0;
 
 for i = 1:(numWaypoints - 1)
@@ -93,7 +93,7 @@ for i = 1:(numWaypoints - 1)
         pz = wp1.z + t * (wp2.z - wp1.z);  % Relative flight profile elevation
         
         dist = cumulativeDistance + t * segmentLength;
-        trackPoints = [trackPoints; px, py, pz, dist];
+        trackPoints = [trackPoints; px, py, pz, dist, 0];  % 0 = not transition
     end
     
     cumulativeDistance = cumulativeDistance + segmentLength;
@@ -175,16 +175,20 @@ actualGradient = abs(requiredZChange) / transitionLength * 100;
 fprintf('  Transition length: %.0f m (%.1f%% gradient)\n', transitionLength, actualGradient);
 
 % Generate transition track points
+% In the transition, we blend from the modified corridor elevation to original terrain
+% We store the transition progress (0 to 1) in column 5
 numTransitionPoints = max(2, ceil(transitionLength));
 for j = 1:numTransitionPoints
     t = j / numTransitionPoints;  % 0 to 1 (exclusive of 0, inclusive of 1)
     
     px = flightPathEndX + t * transitionLength * cosd(endHeading);
     py = flightPathEndY + t * transitionLength * sind(endHeading);
-    pz = flightPathEndZ + t * requiredZChange;  % Linearly interpolate z
+    % Store the transition blend factor (t) - will blend from modified to original terrain
+    % pz stores the flight profile z at the END of the main corridor (for reference)
+    pz = flightPathEndZ;  % Reference z at corridor end
     dist = flightPathEndDist + t * transitionLength;
     
-    trackPoints = [trackPoints; px, py, pz, dist];
+    trackPoints = [trackPoints; px, py, pz, dist, t];  % t = transition blend factor
 end
 
 fprintf('  Transition points added: %d\n', numTransitionPoints);
@@ -253,14 +257,26 @@ for i = 1:numTiles
             end
             
             % Get the flight profile elevation at this track point
-            % This is the RELATIVE elevation (0 at start, positive = climbed)
             flightProfileZ = trackPoints(nearestIdx, 3);
+            isTransition = trackPoints(nearestIdx, 5);  % 0 = corridor, >0 = transition blend factor
             
-            % Target terrain elevation:
-            % - At start (flightProfileZ=0): terrain = baseTerrainLevel
-            % - During climb (flightProfileZ>0): terrain RISES (so pilot climbs to follow)
-            % - During descent (flightProfileZ<0): terrain DROPS (so pilot descends to follow)
-            targetTerrainElev = baseTerrainLevel + flightProfileZ;
+            % Calculate target terrain elevation
+            if isTransition == 0
+                % Inside main corridor: use flight profile
+                % - At start (flightProfileZ=0): terrain = baseTerrainLevel
+                % - During climb (flightProfileZ>0): terrain RISES (so pilot climbs to follow)
+                % - During descent (flightProfileZ<0): terrain DROPS (so pilot descends to follow)
+                targetTerrainElev = baseTerrainLevel + flightProfileZ;
+            else
+                % In transition zone: blend from corridor elevation to original terrain
+                % At t=0 (start of transition): use corridor elevation
+                % At t=1 (end of transition): use original terrain
+                corridorTerrainElev = baseTerrainLevel + flightProfileZ;
+                transitionBlend = isTransition;  % 0 to 1
+                % Smoothly blend from corridor to original using cosine interpolation
+                smoothBlend = 0.5 * (1 - cos(pi * transitionBlend));
+                targetTerrainElev = corridorTerrainElev * (1 - smoothBlend) + origElev * smoothBlend;
+            end
             
             % Calculate blend factor based on distance from track center
             if minDist <= halfWidth
@@ -408,14 +424,31 @@ for tp = 1:size(trackPoints, 1)
     editedTerrainAlongTrack(tp) = getTerrainElevation(trackPoints(tp,1), trackPoints(tp,2), elevationData, geoInfo);
 end
 
-% Calculate relative elevation (flight profile relative to start terrain)
-relativeElevation = baseTerrainLevel + trackPoints(:,3);
+% Calculate expected flight path elevation
+% - In corridor: baseTerrainLevel + flightProfileZ
+% - In transition: blend from corridor elevation to original terrain
+flightPathElevation = zeros(size(trackPoints, 1), 1);
+for tp = 1:size(trackPoints, 1)
+    isTransition = trackPoints(tp, 5);
+    flightProfileZ = trackPoints(tp, 3);
+    
+    if isTransition == 0
+        % In corridor: use flight profile
+        flightPathElevation(tp) = baseTerrainLevel + flightProfileZ;
+    else
+        % In transition: blend to original terrain
+        corridorElev = baseTerrainLevel + flightProfileZ;
+        origElev = originalTerrainAlongTrack(tp);
+        smoothBlend = 0.5 * (1 - cos(pi * isTransition));
+        flightPathElevation(tp) = corridorElev * (1 - smoothBlend) + origElev * smoothBlend;
+    end
+end
 
 % Plot all three
 hold on;
 h1 = plot(trackPoints(:,4), originalTerrainAlongTrack, 'b-', 'LineWidth', 2);
 h2 = plot(trackPoints(:,4), editedTerrainAlongTrack, 'r-', 'LineWidth', 2);
-h3 = plot(trackPoints(:,4), relativeElevation, 'g--', 'LineWidth', 2);
+h3 = plot(trackPoints(:,4), flightPathElevation, 'g--', 'LineWidth', 2);
 
 % Mark transition start
 xline(flightPathEndDist, '--', 'Transition', 'Color', [0.5 0.5 0.5], 'LineWidth', 1.5, 'LabelHorizontalAlignment', 'left');

@@ -378,6 +378,176 @@ for i = 1:length(eventSequence)
             generatedEvents(i).actualParams.elevChange = elevChange;
             
             fprintf('  Length: %.0f m, Gradient: %.1f%%, Elev change: %.1f m\n', len, gradient, elevChange);
+            
+        case {'climb_turn', 'climb_turn_l', 'climb_turn_r'}
+            % Get parameters based on turn type
+            if strcmp(eventType, 'climb_turn_l')
+                radius = params.climb_turn_l.radius;
+                angle = params.climb_turn_l.angle;
+                gradient = params.climb_turn_l.gradient;
+                turnDir = -1;
+                dirStr = 'left';
+            elseif strcmp(eventType, 'climb_turn_r')
+                radius = params.climb_turn_r.radius;
+                angle = params.climb_turn_r.angle;
+                gradient = params.climb_turn_r.gradient;
+                turnDir = 1;
+                dirStr = 'right';
+            else
+                % Generic climb turn - alternate direction
+                radius = params.climb_turn.radius;
+                angle = params.climb_turn.angle;
+                gradient = params.climb_turn.gradient;
+                
+                if lastTurnDir == 0
+                    if rand() > 0.5
+                        turnDir = 1;
+                        dirStr = 'right';
+                    else
+                        turnDir = -1;
+                        dirStr = 'left';
+                    end
+                else
+                    turnDir = -lastTurnDir;
+                    if turnDir == 1
+                        dirStr = 'right';
+                    else
+                        dirStr = 'left';
+                    end
+                end
+            end
+            
+            lastTurnDir = turnDir;
+            
+            % Calculate arc length and elevation change
+            arcLength = radius * deg2rad(angle);
+            elevChange = arcLength * (gradient / 100);
+            
+            % Turn geometry (same as regular turn)
+            centerDir = currentHeading - turnDir * 90;
+            turnCenterX = currentX + radius * cosd(centerDir);
+            turnCenterY = currentY + radius * sind(centerDir);
+            startAngle = currentHeading + turnDir * 90;
+            
+            % Generate arc waypoints with increasing elevation
+            numArcPoints = max(10, round(angle / 5));
+            
+            for j = 1:numArcPoints
+                progress = j / numArcPoints;
+                arcAngle = startAngle - turnDir * angle * progress;
+                
+                wpX = turnCenterX + radius * cosd(arcAngle);
+                wpY = turnCenterY + radius * sind(arcAngle);
+                wpZ = currentZ + elevChange * progress;  % Climb during turn
+                
+                wp.x = wpX;
+                wp.y = wpY;
+                wp.z = wpZ;
+                wp.type = 'climb_turn';
+                waypoints(end+1) = wp;
+            end
+            
+            % Update position
+            currentX = waypoints(end).x;
+            currentY = waypoints(end).y;
+            currentZ = waypoints(end).z;
+            currentHeading = currentHeading - turnDir * angle;
+            
+            % Store actual parameters
+            generatedEvents(i).type = 'climb_turn';
+            generatedEvents(i).actualParams.radius = radius;
+            generatedEvents(i).actualParams.angle = angle;
+            generatedEvents(i).actualParams.gradient = gradient;
+            generatedEvents(i).actualParams.direction = dirStr;
+            generatedEvents(i).actualParams.elevChange = elevChange;
+            
+            fprintf('  Radius: %.0f m, Angle: %.0f deg, Direction: %s, Gradient: %.1f%%, Elev: +%.1f m\n', ...
+                radius, angle, dirStr, gradient, elevChange);
+            
+        case {'descent_turn', 'descent_turn_l', 'descent_turn_r'}
+            % Get parameters based on turn type
+            if strcmp(eventType, 'descent_turn_l')
+                radius = params.descent_turn_l.radius;
+                angle = params.descent_turn_l.angle;
+                gradient = params.descent_turn_l.gradient;
+                turnDir = -1;
+                dirStr = 'left';
+            elseif strcmp(eventType, 'descent_turn_r')
+                radius = params.descent_turn_r.radius;
+                angle = params.descent_turn_r.angle;
+                gradient = params.descent_turn_r.gradient;
+                turnDir = 1;
+                dirStr = 'right';
+            else
+                % Generic descent turn - alternate direction
+                radius = params.descent_turn.radius;
+                angle = params.descent_turn.angle;
+                gradient = params.descent_turn.gradient;
+                
+                if lastTurnDir == 0
+                    if rand() > 0.5
+                        turnDir = 1;
+                        dirStr = 'right';
+                    else
+                        turnDir = -1;
+                        dirStr = 'left';
+                    end
+                else
+                    turnDir = -lastTurnDir;
+                    if turnDir == 1
+                        dirStr = 'right';
+                    else
+                        dirStr = 'left';
+                    end
+                end
+            end
+            
+            lastTurnDir = turnDir;
+            
+            % Calculate arc length and elevation change (negative for descent)
+            arcLength = radius * deg2rad(angle);
+            elevChange = -arcLength * (gradient / 100);
+            
+            % Turn geometry (same as regular turn)
+            centerDir = currentHeading - turnDir * 90;
+            turnCenterX = currentX + radius * cosd(centerDir);
+            turnCenterY = currentY + radius * sind(centerDir);
+            startAngle = currentHeading + turnDir * 90;
+            
+            % Generate arc waypoints with decreasing elevation
+            numArcPoints = max(10, round(angle / 5));
+            
+            for j = 1:numArcPoints
+                progress = j / numArcPoints;
+                arcAngle = startAngle - turnDir * angle * progress;
+                
+                wpX = turnCenterX + radius * cosd(arcAngle);
+                wpY = turnCenterY + radius * sind(arcAngle);
+                wpZ = currentZ + elevChange * progress;  % Descent during turn
+                
+                wp.x = wpX;
+                wp.y = wpY;
+                wp.z = wpZ;
+                wp.type = 'descent_turn';
+                waypoints(end+1) = wp;
+            end
+            
+            % Update position
+            currentX = waypoints(end).x;
+            currentY = waypoints(end).y;
+            currentZ = waypoints(end).z;
+            currentHeading = currentHeading - turnDir * angle;
+            
+            % Store actual parameters
+            generatedEvents(i).type = 'descent_turn';
+            generatedEvents(i).actualParams.radius = radius;
+            generatedEvents(i).actualParams.angle = angle;
+            generatedEvents(i).actualParams.gradient = gradient;
+            generatedEvents(i).actualParams.direction = dirStr;
+            generatedEvents(i).actualParams.elevChange = elevChange;
+            
+            fprintf('  Radius: %.0f m, Angle: %.0f deg, Direction: %s, Gradient: %.1f%%, Elev: %.1f m\n', ...
+                radius, angle, dirStr, gradient, elevChange);
     end
     fprintf('\n');
 end
