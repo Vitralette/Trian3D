@@ -9,9 +9,12 @@
 
 clear; clc; close all;
 
-%% Configuration
-editedFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
-outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Export');
+%% Load Project Configuration
+config = load_project_config();
+editedFolder = config.editedFolder;
+outputFolder = config.exportFolder;
+
+fprintf('Project: %s\n', config.projectName);
 
 % Create output folder if it doesn't exist
 if ~exist(outputFolder, 'dir')
@@ -274,6 +277,20 @@ end
 plot(treeEastings, treeNorthings, 'g^', 'MarkerSize', 6, 'MarkerFaceColor', 'g', ...
     'DisplayName', sprintf('Trees from KML (%d)', numTreesFromKML));
 legend('Location', 'best');
+
+% Save reconstructed-from-KML data as .mat for visualization
+matFilename = 'point_trees_data.mat';
+matFile = fullfile(editedFolder, matFilename);
+
+% Create structure with tree data reconstructed FROM KML
+treeData.treeEastings = treeEastings;   % All tree UTM X coordinates (from KML)
+treeData.treeNorthings = treeNorthings; % All tree UTM Y coordinates (from KML)
+treeData.numTrees = numTreesFromKML;
+treeData.treeSpacing = treeSpacing;
+treeData.trackSeed = geom.randomSeed;
+
+save(matFile, 'treeData');
+fprintf('Reconstructed tree data saved to: %s\n', matFile);
 
 fprintf('  Sample tree from KML (first): E=%.2f, N=%.2f\n', treeEastings(1), treeNorthings(1));
 fprintf('  Sample tree from KML (last):  E=%.2f, N=%.2f\n', treeEastings(end), treeNorthings(end));

@@ -11,9 +11,12 @@
 
 clear; clc; close all;
 
-%% Configuration
-dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
-outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Export');
+%% Load Project Configuration
+config = load_project_config();
+dataFolder = config.editedFolder;
+outputFolder = config.exportFolder;
+
+fprintf('Project: %s\n', config.projectName);
 
 % Create output folder if it doesn't exist
 if ~exist(outputFolder, 'dir')

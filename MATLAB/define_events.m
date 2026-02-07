@@ -7,13 +7,11 @@
 
 clear; clc; close all;
 
-%% Configuration
-outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
+%% Load Project Configuration
+config = load_project_config();
+outputFolder = config.editedFolder;
 
-% Create output folder if it doesn't exist
-if ~exist(outputFolder, 'dir')
-    mkdir(outputFolder);
-end
+fprintf('Project: %s\n', config.projectName);
 
 %% ========================================================================
 %  EVENT POOL - Define which events can appear and how many

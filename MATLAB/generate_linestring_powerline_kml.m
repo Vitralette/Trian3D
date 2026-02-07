@@ -11,9 +11,12 @@
 
 clear; clc; close all;
 
-%% Configuration
-editedFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
-outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Export');
+%% Load Project Configuration
+config = load_project_config();
+editedFolder = config.editedFolder;
+outputFolder = config.exportFolder;
+
+fprintf('Project: %s\n', config.projectName);
 
 % Create output folder if it doesn't exist
 if ~exist(outputFolder, 'dir')
@@ -365,6 +368,9 @@ linePattern = '<LineString>\s*<coordinates>\s*(.*?)\s*</coordinates>';
 
 fprintf('  Found %d LineString elements\n', length(lineMatches));
 
+% Build reconstructed powerline data from KML for saving
+kmlPowerlines = struct('leftX', {}, 'leftY', {}, 'rightX', {}, 'rightY', {});
+
 % Plot each powerline's waypoints from KML
 kmlMarkerColors = lines(length(lineMatches));
 for i = 1:length(lineMatches)
@@ -388,6 +394,12 @@ for i = 1:length(lineMatches)
         [eastings(j), northings(j)] = wgs842utm(lats(j), lons(j), utmZone);
     end
     
+    % Store reconstructed data (first point = left, second = right for 2-point lines)
+    kmlPowerlines(i).leftX = eastings(1);
+    kmlPowerlines(i).leftY = northings(1);
+    kmlPowerlines(i).rightX = eastings(end);
+    kmlPowerlines(i).rightY = northings(end);
+    
     % Plot thin line connecting waypoints
     plot(eastings, northings, '-', 'Color', kmlMarkerColors(i,:), 'LineWidth', 1.5, ...
         'HandleVisibility', 'off');
@@ -403,6 +415,19 @@ for i = 1:length(lineMatches)
             j, lons(j), lats(j), eastings(j), northings(j));
     end
 end
+
+% Save reconstructed-from-KML data as .mat for visualization
+matFilename = 'linestring_powerline_data.mat';
+matFile = fullfile(editedFolder, matFilename);
+
+powerlineData.powerlines = kmlPowerlines;  % Reconstructed from KML
+powerlineData.numPowerlines = length(kmlPowerlines);
+powerlineData.powerlineSeed = powerlineSeed;
+powerlineData.powerlineExtension = powerlineExtension;
+powerlineData.trackSeed = geom.randomSeed;
+
+save(matFile, 'powerlineData');
+fprintf('Reconstructed powerline data saved to: %s\n', matFile);
 
 legend('Location', 'best');
 

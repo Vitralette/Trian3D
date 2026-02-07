@@ -17,9 +17,12 @@
 
 clear; clc; close all;
 
-%% Configuration
-dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Raw');
-outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
+%% Load Project Configuration
+config = load_project_config();
+dataFolder = config.rawFolder;
+outputFolder = config.editedFolder;
+
+fprintf('Project: %s\n', config.projectName);
 
 % Reference AGL altitude (the "floor" of the corridor)
 % Terrain will be shaped so this clearance exists along the track

@@ -11,8 +11,11 @@
 
 clear; clc; close all;
 
-%% Define paths to data files
-dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Raw');
+%% Load Project Configuration
+config = load_project_config();
+dataFolder = config.rawFolder;
+
+fprintf('Project: %s\n', config.projectName);
 
 % Define the base names of the TIF files (without extension)
 tifBaseNames = {

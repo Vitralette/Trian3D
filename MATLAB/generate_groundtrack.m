@@ -9,9 +9,12 @@
 
 clear; clc; close all;
 
-%% Configuration
-dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Raw');
-editedFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
+%% Load Project Configuration
+config = load_project_config();
+dataFolder = config.rawFolder;
+editedFolder = config.editedFolder;
+
+fprintf('Project: %s\n', config.projectName);
 
 %% Initial seed
 randomSeed = 1;  % Starting seed (will increment on reroll)
