@@ -191,6 +191,13 @@ fprintf('  Transition points added: %d\n', numTransitionPoints);
 fprintf('  Final z: %.1f m (should match original terrain offset: %.1f m)\n', ...
     trackPoints(end, 3), targetEndZ);
 
+%% Get ORIGINAL terrain elevation along entire track (before any modification)
+fprintf('\nSampling original terrain elevation along track...\n');
+originalTerrainAlongTrack = zeros(size(trackPoints, 1), 1);
+for tp = 1:size(trackPoints, 1)
+    originalTerrainAlongTrack(tp) = getTerrainElevation(trackPoints(tp,1), trackPoints(tp,2), elevationData, geoInfo);
+end
+
 %% Process each tile - reshape terrain along track
 fprintf('\nReshaping terrain along track...\n');
 
@@ -393,26 +400,39 @@ if ~isempty(transitionStartIdx)
 end
 
 %% Plot elevation profile along track
-figure('Name', 'Track Elevation Profile', 'Position', [250 150 800 400]);
+figure('Name', 'Track Elevation Profile', 'Position', [250 150 900 500]);
 
-subplot(2,1,1);
-plot(trackPoints(:,4), trackPoints(:,3), 'b-', 'LineWidth', 2);
-xlabel('Distance along track (m)');
-ylabel('Flight Profile (m)');
-title('Flight Profile (relative elevation from course definition)');
-grid on;
-
-subplot(2,1,2);
-% Get terrain elevation along track for the modified terrain
-terrainAlongTrack = zeros(size(trackPoints, 1), 1);
+% Get EDITED terrain elevation along track
+editedTerrainAlongTrack = zeros(size(trackPoints, 1), 1);
 for tp = 1:size(trackPoints, 1)
-    terrainAlongTrack(tp) = getTerrainElevation(trackPoints(tp,1), trackPoints(tp,2), elevationData, geoInfo);
+    editedTerrainAlongTrack(tp) = getTerrainElevation(trackPoints(tp,1), trackPoints(tp,2), elevationData, geoInfo);
 end
-plot(trackPoints(:,4), terrainAlongTrack, 'k-', 'LineWidth', 2);
+
+% Calculate relative elevation (flight profile relative to start terrain)
+relativeElevation = baseTerrainLevel + trackPoints(:,3);
+
+% Plot all three
+hold on;
+h1 = plot(trackPoints(:,4), originalTerrainAlongTrack, 'b-', 'LineWidth', 2);
+h2 = plot(trackPoints(:,4), editedTerrainAlongTrack, 'r-', 'LineWidth', 2);
+h3 = plot(trackPoints(:,4), relativeElevation, 'g--', 'LineWidth', 2);
+
+% Mark transition start
+xline(flightPathEndDist, '--', 'Transition', 'Color', [0.5 0.5 0.5], 'LineWidth', 1.5, 'LabelHorizontalAlignment', 'left');
+
 xlabel('Distance along track (m)');
-ylabel('Terrain Elevation (m)');
-title('Reshaped Terrain Elevation Along Track');
+ylabel('Elevation (m)');
+title('Elevation Profile Along Track');
+legend([h1 h2 h3], 'Original Terrain', 'Edited Terrain', 'Flight Path (relative)', 'Location', 'best');
 grid on;
+hold off;
+
+% Print verification
+fprintf('\n--- Transition Verification ---\n');
+fprintf('At end of corridor:\n');
+fprintf('  Original terrain: %.2f m\n', originalTerrainAlongTrack(end));
+fprintf('  Edited terrain:   %.2f m\n', editedTerrainAlongTrack(end));
+fprintf('  Difference:       %.2f m (should be ~0)\n', abs(originalTerrainAlongTrack(end) - editedTerrainAlongTrack(end)));
 
 %% 3D Surface Plot
 figure('Name', '3D Terrain View', 'Position', [300 100 900 700]);
