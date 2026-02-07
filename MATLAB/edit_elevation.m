@@ -1,11 +1,19 @@
-%% Edit Elevation - Apply Waypoint-Based Track Geometry
-% This script loads a track geometry from generate_groundtrack.m and applies
-% elevation changes along the track path defined by waypoints.
+%% Edit Elevation - Shape Terrain to Match Course Profile
+% This script modifies terrain elevation along the flight path so that
+% a pilot flying at constant AGL will experience the climbs and descents
+% defined in the course structure.
+%
+% How it works:
+%   - Climb event: terrain DROPS so pilot must climb to maintain AGL
+%   - Descent event: terrain RISES so pilot must descend to maintain AGL
+%   - Straight event: terrain stays level (constant slope = 0)
+%
+% The terrain is smoothly blended at corridor edges to look natural.
 %
 % Prerequisite: Run generate_groundtrack.m first to create track_geometry.mat
 %
 % Author: Tim Jusko
-% Date: 2026-02-06
+% Date: 2026-02-07
 
 clear; clc; close all;
 
@@ -13,8 +21,12 @@ clear; clc; close all;
 dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Raw');
 outputFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
 
-% Elevation drop for the track (how deep to carve)
-baseElevationDrop = -30;  % meters (will be combined with track z-profile)
+% Reference AGL altitude (the "floor" of the corridor)
+% Terrain will be shaped so this clearance exists along the track
+referenceAGL = 15;  % meters - pilot flies this high above reshaped terrain
+
+% Edge blending width (smooth transition from modified to original terrain)
+blendWidth = 100;  % meters - how wide the smooth transition zone is
 
 %% Load track geometry
 geometryFile = fullfile(outputFolder, 'track_geometry.mat');
@@ -37,18 +49,23 @@ yMaxTotal = geom.yMaxTerrain;
 halfWidth = corridorWidth / 2;
 numWaypoints = length(waypoints);
 
-fprintf('\nTrack parameters (loaded from file):\n');
+fprintf('\nTrack parameters:\n');
 fprintf('  Seed: %d\n', geom.randomSeed);
 fprintf('  Waypoints: %d\n', numWaypoints);
 fprintf('  Total length: %.0f m\n', geom.totalLength);
 fprintf('  Corridor width: %.0f m\n', corridorWidth);
-fprintf('  Base elevation drop: %.0f m\n', baseElevationDrop);
+fprintf('  Reference AGL: %.0f m\n', referenceAGL);
+fprintf('  Blend width: %.0f m\n', blendWidth);
 
-%% Build dense track path from waypoints
-% Interpolate between waypoints to get a dense set of points along the track
-fprintf('\nBuilding dense track path...\n');
+%% Build dense track path with elevation profile
+% The waypoint z-values define the RELATIVE elevation profile:
+%   z=0 at start, z increases during climb, z decreases during descent
+% We invert this for terrain: terrain = base - z (so climb = terrain drops)
 
-trackPoints = [];  % Will store [x, y, z] for dense points along track
+fprintf('\nBuilding dense track path with elevation profile...\n');
+
+trackPoints = [];  % [x, y, targetTerrainZ, distanceAlongTrack]
+cumulativeDistance = 0;
 
 for i = 1:(numWaypoints - 1)
     wp1 = waypoints(i);
@@ -65,14 +82,20 @@ for i = 1:(numWaypoints - 1)
         t = j / (numPoints - 1);
         px = wp1.x + t * (wp2.x - wp1.x);
         py = wp1.y + t * (wp2.y - wp1.y);
-        pz = wp1.z + t * (wp2.z - wp1.z);
-        trackPoints = [trackPoints; px, py, pz];
+        pz = wp1.z + t * (wp2.z - wp1.z);  % Relative flight profile elevation
+        
+        dist = cumulativeDistance + t * segmentLength;
+        trackPoints = [trackPoints; px, py, pz, dist];
     end
+    
+    cumulativeDistance = cumulativeDistance + segmentLength;
 end
 
 fprintf('  Dense track points: %d\n', size(trackPoints, 1));
+fprintf('  Flight profile range: %.1f to %.1f m (relative)\n', ...
+    min(trackPoints(:,3)), max(trackPoints(:,3)));
 
-%% Load all tiles
+%% Load all tiles and get reference elevation at track start
 fprintf('\nLoading tiles...\n');
 numTiles = length(tifBaseNames);
 elevationData = cell(numTiles, 1);
@@ -81,13 +104,11 @@ geoInfo = cell(numTiles, 1);
 for i = 1:numTiles
     baseName = tifBaseNames{i};
     
-    % Load geotiffinfo
     geoInfoFile = fullfile(dataFolder, [baseName '_geotiffinfo.mat']);
     geoInfoData = load(geoInfoFile);
     geoInfoFields = fieldnames(geoInfoData);
     geoInfo{i} = geoInfoData.(geoInfoFields{1});
     
-    % Load elevation data
     rasterFile = fullfile(dataFolder, [baseName '_readgeoraster.mat']);
     rasterData = load(rasterFile);
     elevationData{i} = rasterData.A;
@@ -95,8 +116,20 @@ for i = 1:numTiles
     fprintf('  Loaded: %s (%d x %d)\n', baseName, size(elevationData{i}, 1), size(elevationData{i}, 2));
 end
 
-%% Process each tile
-fprintf('\nProcessing tiles...\n');
+% Get terrain elevation at start point
+startX = waypoints(1).x;
+startY = waypoints(1).y;
+startTerrainElev = getTerrainElevation(startX, startY, elevationData, geoInfo);
+fprintf('\nStart point terrain elevation: %.1f m\n', startTerrainElev);
+
+% Base terrain level for the corridor (terrain at start minus reference AGL headroom)
+% Actually, we want the terrain to be UNDER the flight path
+% Flight path starts at z=0 (relative), terrain should be referenceAGL below that
+baseTerrainLevel = startTerrainElev;
+fprintf('Base terrain level at start: %.1f m\n', baseTerrainLevel);
+
+%% Process each tile - reshape terrain along track
+fprintf('\nReshaping terrain along track...\n');
 
 for i = 1:numTiles
     baseName = tifBaseNames{i};
@@ -108,11 +141,7 @@ for i = 1:numTiles
     tileXMax = bbox(2, 1);
     tileYMin = bbox(1, 2);
     tileYMax = bbox(2, 2);
-    
-    % Get pixel scale
     cellSize = geoInfo{i}.PixelScale(1);
-    
-    % Get dimensions
     [nRows, nCols] = size(elevationData{i});
     
     % Create coordinate grids for this tile
@@ -120,51 +149,81 @@ for i = 1:numTiles
     yCoords = linspace(tileYMax - cellSize/2, tileYMin + cellSize/2, nRows);
     [X, Y] = meshgrid(xCoords, yCoords);
     
-    % Initialize mask and elevation adjustment arrays
-    trackMask = false(nRows, nCols);
-    elevAdjust = zeros(nRows, nCols);
-    
-    % For each pixel, check distance to track and calculate elevation adjustment
-    fprintf('    Calculating track mask (this may take a moment)...\n');
-    
-    % Vectorized approach: for each track point, mark nearby pixels
-    for tp = 1:size(trackPoints, 1)
-        px = trackPoints(tp, 1);
-        py = trackPoints(tp, 2);
-        pz = trackPoints(tp, 3);
-        
-        % Skip track points outside this tile (with margin)
-        if px < tileXMin - halfWidth || px > tileXMax + halfWidth || ...
-           py < tileYMin - halfWidth || py > tileYMax + halfWidth
-            continue;
-        end
-        
-        % Find pixels within corridor width of this track point
-        dist = sqrt((X - px).^2 + (Y - py).^2);
-        nearbyMask = dist <= halfWidth;
-        
-        % Update mask
-        trackMask = trackMask | nearbyMask;
-        
-        % For pixels in the track, set their elevation adjustment
-        newPixels = nearbyMask & (elevAdjust == 0);
-        elevAdjust(newPixels) = baseElevationDrop + pz;
-    end
-    
-    % Count affected pixels
-    numAffected = sum(trackMask(:));
-    fprintf('    Pixels in track: %d (%.2f%%)\n', numAffected, 100 * numAffected / numel(trackMask));
-    
-    % Apply elevation change
+    % Original elevation
     originalElevation = elevationData{i};
     modifiedElevation = originalElevation;
-    modifiedElevation(trackMask) = originalElevation(trackMask) + elevAdjust(trackMask);
+    
+    % For each pixel, find closest track point and calculate target elevation
+    fprintf('    Calculating terrain modifications...\n');
+    
+    % Build KD-tree-like structure for fast lookup (simplified: just track XY)
+    trackXY = trackPoints(:, 1:2);
+    
+    % Process in chunks for memory efficiency
+    for row = 1:nRows
+        for col = 1:nCols
+            px = X(row, col);
+            py = Y(row, col);
+            
+            % Quick bounds check - skip if far from track
+            if px < min(trackXY(:,1)) - halfWidth - blendWidth || ...
+               px > max(trackXY(:,1)) + halfWidth + blendWidth || ...
+               py < min(trackXY(:,2)) - halfWidth - blendWidth || ...
+               py > max(trackXY(:,2)) + halfWidth + blendWidth
+                continue;
+            end
+            
+            % Find distance to nearest track point
+            distances = sqrt((trackXY(:,1) - px).^2 + (trackXY(:,2) - py).^2);
+            [minDist, nearestIdx] = min(distances);
+            
+            % Only modify pixels within corridor + blend zone
+            if minDist > halfWidth + blendWidth
+                continue;
+            end
+            
+            % Get the flight profile elevation at this track point
+            % This is the RELATIVE elevation (0 at start, positive = climbed)
+            flightProfileZ = trackPoints(nearestIdx, 3);
+            
+            % Target terrain elevation:
+            % - At start (flightProfileZ=0): terrain = baseTerrainLevel
+            % - During climb (flightProfileZ>0): terrain DROPS (so pilot climbs)
+            % - During descent (flightProfileZ<0): terrain RISES (so pilot descends)
+            targetTerrainElev = baseTerrainLevel - flightProfileZ;
+            
+            % Calculate blend factor based on distance from track center
+            if minDist <= halfWidth
+                % Inside corridor: full modification
+                blendFactor = 1.0;
+            else
+                % In blend zone: smooth transition
+                blendDist = minDist - halfWidth;
+                blendFactor = 1.0 - (blendDist / blendWidth);
+                blendFactor = max(0, min(1, blendFactor));
+                % Smooth the blend with cosine interpolation
+                blendFactor = 0.5 * (1 + cos(pi * (1 - blendFactor)));
+            end
+            
+            % Apply blended elevation
+            origElev = originalElevation(row, col);
+            modifiedElevation(row, col) = origElev + blendFactor * (targetTerrainElev - origElev);
+        end
+    end
     
     % Store modified data
     elevationData{i} = modifiedElevation;
     
-    fprintf('    Original elevation range: %.2f to %.2f\n', min(originalElevation(:)), max(originalElevation(:)));
-    fprintf('    Modified elevation range: %.2f to %.2f\n', min(modifiedElevation(:)), max(modifiedElevation(:)));
+    % Statistics
+    changed = abs(modifiedElevation - originalElevation) > 0.01;
+    numChanged = sum(changed(:));
+    if numChanged > 0
+        maxChange = max(abs(modifiedElevation(changed) - originalElevation(changed)));
+        fprintf('    Pixels modified: %d (%.2f%%)\n', numChanged, 100 * numChanged / numel(changed));
+        fprintf('    Max elevation change: %.1f m\n', maxChange);
+    else
+        fprintf('    No pixels modified in this tile\n');
+    end
 end
 
 %% Save edited data
@@ -217,25 +276,127 @@ end
                    linspace(yMaxTotal, yMinTotal, nRowsTotal));
 
 %% Contour plot
-figure('Name', 'Elevation Contours - Track Edit', 'Position', [200 200 800 600]);
+figure('Name', 'Terrain Profile - Course Applied', 'Position', [200 200 900 700]);
 contourf(X, Y, mergedElevation, 20);
 colormap(parula);
 cb = colorbar; cb.Label.String = 'Elevation (m)';
 xlabel('Easting (m)');
 ylabel('Northing (m)');
-title(sprintf('Elevation Contour Map - Track Edit (Seed: %d)', geom.randomSeed));
+title(sprintf('Reshaped Terrain - Course Profile Applied (Seed: %d)', geom.randomSeed));
 axis equal tight;
 hold on;
 
-% Overlay track centerline
-trackX = [waypoints.x];
-trackY = [waypoints.y];
-plot(trackX, trackY, 'r-', 'LineWidth', 2, 'DisplayName', 'Track');
-plot(waypoints(1).x, waypoints(1).y, 'go', 'MarkerSize', 10, 'MarkerFaceColor', 'g', 'DisplayName', 'Start');
-plot(waypoints(end).x, waypoints(end).y, 'rs', 'MarkerSize', 10, 'MarkerFaceColor', 'r', 'DisplayName', 'End');
-legend('Location', 'best');
+% Overlay track with event colors
+eventColors = struct(...
+    'start', [0.2 0.8 0.2], ...
+    'straight', [0.2 0.4 1.0], ...
+    'turn', [1.0 0.0 1.0], ...
+    'climb', [1.0 0.5 0.0], ...
+    'descent', [0.0 0.8 0.8], ...         % Cyan
+    'transition_up', [0.6 0.6 0.6], ...   % Gray
+    'transition_down', [0.6 0.6 0.6]);    % Gray
+
+for i = 2:length(waypoints)
+    wp1 = waypoints(i-1);
+    wp2 = waypoints(i);
+    segType = wp2.type;
+    if isfield(eventColors, segType)
+        c = eventColors.(segType);
+    else
+        c = [0.5 0.5 0.5];
+    end
+    plot([wp1.x, wp2.x], [wp1.y, wp2.y], '-', 'LineWidth', 3, 'Color', c);
+end
+
+plot(waypoints(1).x, waypoints(1).y, 'o', 'MarkerSize', 14, 'MarkerFaceColor', [0 0.8 0], ...
+    'MarkerEdgeColor', 'k', 'LineWidth', 2);
+plot(waypoints(end).x, waypoints(end).y, 's', 'MarkerSize', 14, 'MarkerFaceColor', [0.8 0 0], ...
+    'MarkerEdgeColor', 'k', 'LineWidth', 2);
+
+%% Plot elevation profile along track
+figure('Name', 'Track Elevation Profile', 'Position', [250 150 800 400]);
+
+subplot(2,1,1);
+plot(trackPoints(:,4), trackPoints(:,3), 'b-', 'LineWidth', 2);
+xlabel('Distance along track (m)');
+ylabel('Flight Profile (m)');
+title('Flight Profile (relative elevation from course definition)');
+grid on;
+
+subplot(2,1,2);
+% Get terrain elevation along track for the modified terrain
+terrainAlongTrack = zeros(size(trackPoints, 1), 1);
+for tp = 1:size(trackPoints, 1)
+    terrainAlongTrack(tp) = getTerrainElevation(trackPoints(tp,1), trackPoints(tp,2), elevationData, geoInfo);
+end
+plot(trackPoints(:,4), terrainAlongTrack, 'k-', 'LineWidth', 2);
+xlabel('Distance along track (m)');
+ylabel('Terrain Elevation (m)');
+title('Reshaped Terrain Elevation Along Track');
+grid on;
+
+%% 3D Surface Plot
+figure('Name', '3D Terrain View', 'Position', [300 100 900 700]);
+
+% Downsample for faster rendering (every 5th point)
+downsample = 5;
+Xd = X(1:downsample:end, 1:downsample:end);
+Yd = Y(1:downsample:end, 1:downsample:end);
+Zd = mergedElevation(1:downsample:end, 1:downsample:end);
+
+% Plot surface
+surf(Xd, Yd, Zd, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+colormap(parula);
+cb = colorbar; cb.Label.String = 'Elevation (m)';
+xlabel('Easting (m)');
+ylabel('Northing (m)');
+zlabel('Elevation (m)');
+title(sprintf('3D Terrain with Course Profile (Seed: %d)', geom.randomSeed));
+axis tight;
+hold on;
+
+% Plot track as 3D line (at terrain surface + small offset for visibility)
+trackZ = zeros(length(waypoints), 1);
+for i = 1:length(waypoints)
+    trackZ(i) = getTerrainElevation(waypoints(i).x, waypoints(i).y, elevationData, geoInfo) + 2;
+end
+plot3([waypoints.x], [waypoints.y], trackZ, 'r-', 'LineWidth', 3);
+
+% Plot start and end markers
+plot3(waypoints(1).x, waypoints(1).y, trackZ(1) + 5, 'go', 'MarkerSize', 12, 'MarkerFaceColor', 'g');
+plot3(waypoints(end).x, waypoints(end).y, trackZ(end) + 5, 'rs', 'MarkerSize', 12, 'MarkerFaceColor', 'r');
+
+% Set view angle
+view(45, 30);
+lighting gouraud;
+camlight('headlight');
 
 fprintf('\n--- Edit Complete ---\n');
-fprintf('Generated contour plot of edited elevation data.\n');
-fprintf('Track carved: %.0f m wide, base drop %.0f m\n', corridorWidth, abs(baseElevationDrop));
-fprintf('Run export_geotiff.m to generate TIF files for Trian3D.\n');
+fprintf('Terrain reshaped to match course profile.\n');
+fprintf('  Corridor width: %.0f m\n', corridorWidth);
+fprintf('  Flight profile range: %.1f to %.1f m\n', min(trackPoints(:,3)), max(trackPoints(:,3)));
+fprintf('\nRun export_geotiff.m to generate TIF files for Trian3D.\n');
+
+%% ========================================================================
+%  HELPER FUNCTION: Get terrain elevation at a point
+%  ========================================================================
+function elev = getTerrainElevation(x, y, elevationData, geoInfo)
+    elev = NaN;
+    for i = 1:length(geoInfo)
+        bbox = geoInfo{i}.BoundingBox;
+        if x >= bbox(1,1) && x <= bbox(2,1) && y >= bbox(1,2) && y <= bbox(2,2)
+            % Point is in this tile
+            cellSize = geoInfo{i}.PixelScale(1);
+            [nRows, nCols] = size(elevationData{i});
+            
+            col = round((x - bbox(1,1)) / cellSize) + 1;
+            row = round((bbox(2,2) - y) / cellSize) + 1;
+            
+            col = max(1, min(nCols, col));
+            row = max(1, min(nRows, row));
+            
+            elev = elevationData{i}(row, col);
+            return;
+        end
+    end
+end

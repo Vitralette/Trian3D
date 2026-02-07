@@ -1,13 +1,11 @@
 %% Generate Ground Track from Course Structure
 % This script takes a course structure (from define_course_structure.m) and
-% generates a specific ground track instance by randomizing parameters within
-% the defined bounds.
+% generates a random EVENT SEQUENCE from the event pool, then builds the track.
 %
-% REROLL: Change the 'randomSeed' value to generate a different track
-%         with the same structure.
+% REROLL: Change the 'randomSeed' value to generate a different sequence!
 %
 % Author: Tim Jusko
-% Date: 2026-02-06
+% Date: 2026-02-07
 
 clear; clc; close all;
 
@@ -16,15 +14,15 @@ dataFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Raw');
 editedFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
 
 %% ========================================================================
-%  REROLL CONTROL - Change this seed to generate a different track!
+%  REROLL CONTROL - Change this seed to generate a different SEQUENCE!
 %  ========================================================================
-randomSeed = 123;  % <-- CHANGE THIS TO REROLL THE COURSE
+randomSeed = 99;  % <-- CHANGE THIS TO REROLL THE SEQUENCE
 %  ========================================================================
 
 rng(randomSeed);
 fprintf('=== Ground Track Generator ===\n');
 fprintf('Random seed: %d\n', randomSeed);
-fprintf('(Change seed to reroll the course)\n\n');
+fprintf('(Change seed to reroll the event sequence)\n\n');
 
 %% Load Course Structure
 structureFile = fullfile(editedFolder, 'course_structure.mat');
@@ -32,10 +30,58 @@ if ~exist(structureFile, 'file')
     error('Course structure file not found. Run define_course_structure.m first.');
 end
 load(structureFile, 'courseStructure');
-events = courseStructure.events;
-corridorWidth = courseStructure.corridorWidth;
 
-fprintf('Loaded course structure with %d events\n', length(events));
+eventPool = courseStructure.eventPool;
+params = courseStructure.params;
+corridorWidth = courseStructure.corridorWidth;
+forceStartStraight = courseStructure.forceStartStraight;
+forceEndStraight = courseStructure.forceEndStraight;
+
+%% Generate Random Event Sequence from Pool
+fprintf('Generating random event sequence from pool...\n');
+
+% Build list of all events from pool
+allEvents = {};
+for i = 1:size(eventPool, 1)
+    eventType = eventPool{i, 1};
+    eventCount = eventPool{i, 2};
+    for j = 1:eventCount
+        allEvents{end+1} = eventType;
+    end
+end
+
+% Shuffle the events
+shuffledIdx = randperm(length(allEvents));
+eventSequence = allEvents(shuffledIdx);
+
+% Handle forced start/end straights
+if forceStartStraight
+    % Find a straight and move it to the front
+    straightIdx = find(strcmp(eventSequence, 'straight'), 1);
+    if ~isempty(straightIdx) && straightIdx ~= 1
+        eventSequence([1, straightIdx]) = eventSequence([straightIdx, 1]);
+    end
+end
+
+if forceEndStraight
+    % Find a straight (not the first one) and move it to the end
+    straightIndices = find(strcmp(eventSequence, 'straight'));
+    if length(straightIndices) > 1
+        lastStraightIdx = straightIndices(end);
+        if lastStraightIdx ~= length(eventSequence)
+            eventSequence([lastStraightIdx, end]) = eventSequence([end, lastStraightIdx]);
+        end
+    elseif length(straightIndices) == 1 && ~forceStartStraight
+        % Only one straight, move it to end
+        straightIdx = straightIndices(1);
+        if straightIdx ~= length(eventSequence)
+            eventSequence([straightIdx, end]) = eventSequence([end, straightIdx]);
+        end
+    end
+end
+
+fprintf('Generated sequence: %s\n', strjoin(eventSequence, ' -> '));
+fprintf('Total events: %d\n\n', length(eventSequence));
 
 %% Load terrain extent
 tifBaseNames = {
@@ -125,18 +171,14 @@ safeXMax = xMaxTerrain - margin;
 safeYMin = yMinTerrain + margin;
 safeYMax = yMaxTerrain - margin;
 
-for i = 1:length(events)
-    e = events(i);
-    fprintf('Event %d: %s\n', i, upper(e.type));
+for i = 1:length(eventSequence)
+    eventType = eventSequence{i};
+    fprintf('Event %d: %s\n', i, upper(eventType));
     
-    % NOTE: Removed auto-heading correction - it breaks track continuity
-    % The track must be continuous; if it goes out of bounds, change the seed
-    % or adjust the course structure parameters
-    
-    switch e.type
+    switch eventType
         case 'straight'
-            % Randomize length
-            len = e.params.lengthMin + rand() * (e.params.lengthMax - e.params.lengthMin);
+            % Fixed length
+            len = params.straight.length;
             
             % Calculate end point
             endX = currentX + len * cosd(currentHeading);
@@ -159,24 +201,25 @@ for i = 1:length(events)
             
             fprintf('  Length: %.0f m\n', len);
             
-        case 'turn'
-            % Randomize parameters
-            radius = e.params.radiusMin + rand() * (e.params.radiusMax - e.params.radiusMin);
-            angle = e.params.angleMin + rand() * (e.params.angleMax - e.params.angleMin);
-            
-            % Determine direction
-            if e.params.directionRandom
-                if rand() > 0.5
-                    turnDir = 1;  % Right turn
-                    dirStr = 'right';
-                else
-                    turnDir = -1; % Left turn
-                    dirStr = 'left';
-                end
-            elseif strcmpi(e.params.direction, 'opposite')
-                % Opposite of last turn (for S-pattern)
+        case {'turn', 'turn_l', 'turn_r'}
+            % Get parameters based on turn type
+            if strcmp(eventType, 'turn_l')
+                radius = params.turn_l.radius;
+                angle = params.turn_l.angle;
+                turnDir = -1;
+                dirStr = 'left';
+            elseif strcmp(eventType, 'turn_r')
+                radius = params.turn_r.radius;
+                angle = params.turn_r.angle;
+                turnDir = 1;
+                dirStr = 'right';
+            else
+                % Generic turn - alternate direction
+                radius = params.turn.radius;
+                angle = params.turn.angle;
+                
                 if lastTurnDir == 0
-                    % No previous turn, pick random
+                    % First turn: random direction
                     if rand() > 0.5
                         turnDir = 1;
                         dirStr = 'right';
@@ -185,20 +228,13 @@ for i = 1:length(events)
                         dirStr = 'left';
                     end
                 else
-                    turnDir = -lastTurnDir;  % Opposite
+                    % Alternate from last turn
+                    turnDir = -lastTurnDir;
                     if turnDir == 1
                         dirStr = 'right';
                     else
                         dirStr = 'left';
                     end
-                end
-            else
-                if strcmpi(e.params.direction, 'right')
-                    turnDir = 1;
-                    dirStr = 'right';
-                else
-                    turnDir = -1;
-                    dirStr = 'left';
                 end
             end
             
@@ -272,9 +308,9 @@ for i = 1:length(events)
             fprintf('  Radius: %.0f m, Angle: %.0f deg, Direction: %s\n', radius, angle, dirStr);
             
         case 'climb'
-            % Randomize parameters
-            len = e.params.lengthMin + rand() * (e.params.lengthMax - e.params.lengthMin);
-            gradient = e.params.gradientMin + rand() * (e.params.gradientMax - e.params.gradientMin);
+            % Fixed parameters
+            len = params.climb.length;
+            gradient = params.climb.gradient;
             
             % Calculate elevation change
             elevChange = len * (gradient / 100);
@@ -305,9 +341,9 @@ for i = 1:length(events)
             fprintf('  Length: %.0f m, Gradient: %.1f%%, Elev change: +%.1f m\n', len, gradient, elevChange);
             
         case 'descent'
-            % Randomize parameters
-            len = e.params.lengthMin + rand() * (e.params.lengthMax - e.params.lengthMin);
-            gradient = e.params.gradientMin + rand() * (e.params.gradientMax - e.params.gradientMin);
+            % Fixed parameters
+            len = params.descent.length;
+            gradient = params.descent.gradient;
             
             % Calculate elevation change (negative for descent)
             elevChange = -len * (gradient / 100);
@@ -338,6 +374,59 @@ for i = 1:length(events)
             fprintf('  Length: %.0f m, Gradient: %.1f%%, Elev change: %.1f m\n', len, gradient, elevChange);
     end
     fprintf('\n');
+end
+
+%% Add transition segment to return to original terrain elevation
+% This prevents cliffs/walls at the end of the course
+fprintf('Adding transition segment to blend back to original terrain...\n');
+
+if abs(currentZ) > 0.1  % Only add if we're not already at original level
+    % Calculate required gradient to return to z=0
+    % Use a gentle transition (max 5% gradient, adjust length as needed)
+    maxTransitionGradient = 5;  % percent
+    
+    % Calculate minimum length needed at max gradient
+    minLength = abs(currentZ) / (maxTransitionGradient / 100);
+    
+    % Use at least 100m, or whatever is needed for smooth transition
+    transitionLength = max(100, minLength);
+    
+    % Actual gradient (may be gentler than max if we use longer segment)
+    transitionGradient = abs(currentZ) / transitionLength * 100;
+    
+    % Elevation change to get back to z=0
+    if currentZ > 0
+        % We're above original, need to descend
+        elevChange = -currentZ;
+        transitionType = 'transition_down';
+    else
+        % We're below original, need to climb
+        elevChange = -currentZ;  % This will be positive (climbing back up)
+        transitionType = 'transition_up';
+    end
+    
+    % Calculate end point
+    endX = currentX + transitionLength * cosd(currentHeading);
+    endY = currentY + transitionLength * sind(currentHeading);
+    endZ = 0;  % Back to original terrain level
+    
+    % Add waypoint
+    wp.x = endX;
+    wp.y = endY;
+    wp.z = endZ;
+    wp.type = transitionType;
+    waypoints(end+1) = wp;
+    
+    % Update state
+    currentX = endX;
+    currentY = endY;
+    currentZ = endZ;
+    
+    fprintf('  Type: %s\n', upper(transitionType));
+    fprintf('  Length: %.0f m, Gradient: %.1f%%, Elev change: %.1f m\n', transitionLength, transitionGradient, elevChange);
+    fprintf('  (Returns terrain to original elevation for smooth exit)\n\n');
+else
+    fprintf('  No transition needed (already at original elevation)\n\n');
 end
 
 %% Calculate total track length
@@ -374,6 +463,7 @@ end
 %% Save track geometry
 trackGeometry.waypoints = waypoints;
 trackGeometry.generatedEvents = generatedEvents;
+trackGeometry.eventSequence = eventSequence;
 trackGeometry.corridorWidth = corridorWidth;
 trackGeometry.randomSeed = randomSeed;
 trackGeometry.totalLength = totalLength;
@@ -429,11 +519,13 @@ hold on;
 
 % Define colors for each event type
 eventColors = struct(...
-    'start', [0.2 0.8 0.2], ...    % Green
-    'straight', [0.2 0.4 1.0], ... % Blue
-    'turn', [1.0 0.0 1.0], ...     % Magenta
-    'climb', [1.0 0.5 0.0], ...    % Orange
-    'descent', [0.0 0.8 0.8]);     % Cyan
+    'start', [0.2 0.8 0.2], ...           % Green
+    'straight', [0.2 0.4 1.0], ...        % Blue
+    'turn', [1.0 0.0 1.0], ...            % Magenta
+    'climb', [1.0 0.5 0.0], ...           % Orange
+    'descent', [0.0 0.8 0.8], ...         % Cyan
+    'transition_up', [0.6 0.6 0.6], ...   % Gray (blend back up)
+    'transition_down', [0.6 0.6 0.6]);    % Gray (blend back down)
 
 % Plot track segments with color per event type
 legendHandles = [];
