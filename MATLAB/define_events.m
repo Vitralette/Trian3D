@@ -97,15 +97,15 @@ fprintf('  Force start with straight: %s\n', mat2str(forceStartStraight));
 fprintf('  Force end with straight: %s\n', mat2str(forceEndStraight));
 
 %% Save Course Structure
-courseStructure.eventPool = eventPool;
-courseStructure.params = params;
-courseStructure.corridorWidth = corridorWidth;
-courseStructure.transition = transition;
-courseStructure.forceStartStraight = forceStartStraight;
-courseStructure.forceEndStraight = forceEndStraight;
+eventStructure.eventPool = eventPool;
+eventStructure.params = params;
+eventStructure.corridorWidth = corridorWidth;
+eventStructure.transition = transition;
+eventStructure.forceStartStraight = forceStartStraight;
+eventStructure.forceEndStraight = forceEndStraight;
 
-structureFile = fullfile(outputFolder, 'course_structure.mat');
-save(structureFile, 'courseStructure');
+structureFile = fullfile(outputFolder, 'event_structure.mat');
+save(structureFile, 'eventStructure');
 
 fprintf('\n=== Structure Saved ===\n');
 fprintf('File: %s\n', structureFile);

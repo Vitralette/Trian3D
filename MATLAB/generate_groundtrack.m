@@ -17,18 +17,18 @@ editedFolder = fullfile('..', 'TRIAN3D', 'SampleProject', 'Edited');
 randomSeed = 1;  % Starting seed (will increment on reroll)
 
 %% Load Course Structure (once, outside loop)
-structureFile = fullfile(editedFolder, 'course_structure.mat');
+structureFile = fullfile(editedFolder, 'event_structure.mat');
 if ~exist(structureFile, 'file')
     error('Course structure file not found. Run define_course_structure.m first.');
 end
-load(structureFile, 'courseStructure');
+load(structureFile, 'eventStructure');
 
-eventPool = courseStructure.eventPool;
-params = courseStructure.params;
-corridorWidth = courseStructure.corridorWidth;
-transition = courseStructure.transition;
-forceStartStraight = courseStructure.forceStartStraight;
-forceEndStraight = courseStructure.forceEndStraight;
+eventPool = eventStructure.eventPool;
+params = eventStructure.params;
+corridorWidth = eventStructure.corridorWidth;
+transition = eventStructure.transition;
+forceStartStraight = eventStructure.forceStartStraight;
+forceEndStraight = eventStructure.forceEndStraight;
 
 %% Load terrain data (once, outside loop)
 tifBaseNames = {

@@ -38,12 +38,12 @@ geomData = load(geometryFile);
 geom = geomData.trackGeometry;
 
 %% Load course structure for transition parameters
-structureFile = fullfile(outputFolder, 'course_structure.mat');
+structureFile = fullfile(outputFolder, 'event_structure.mat');
 if ~exist(structureFile, 'file')
     error('Course structure file not found. Run define_course_structure.m first.');
 end
 structData = load(structureFile);
-transition = structData.courseStructure.transition;
+transition = structData.eventStructure.transition;
 
 % Extract geometry parameters
 waypoints = geom.waypoints;

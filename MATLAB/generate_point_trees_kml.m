@@ -1,8 +1,8 @@
-%% Generate KML with Trees Along Track Boundaries
-% This script generates a KML file with trees placed along the left and right
-% boundaries of the track created by generate_groundtrack.m + edit_elevation.m
+%% Generate Point Trees KML
+% This script generates a KML file with trees placed as points along the 
+% left and right boundaries of the track.
 %
-% Trees are placed at equidistant intervals along the waypoint-based track
+% Output: point_trees.kml
 %
 % Author: Tim Jusko
 % Date: 2026-02-06
@@ -18,9 +18,10 @@ if ~exist(outputFolder, 'dir')
     mkdir(outputFolder);
 end
 
-% Tree placement parameters
+% Placement parameters
 treeSpacing = 20;       % Distance between trees in meters
-treeName = 'trees';     % Object name recognized by Trian3D (from KML bible)
+objectName = 'trees';   % Object name recognized by Trian3D (from KML bible)
+placementMethod = 'point';  % KML geometry type
 
 %% Load track geometry
 geometryFile = fullfile(editedFolder, 'track_geometry.mat');
@@ -134,7 +135,8 @@ fprintf('  Sample tree position (left, first): %.6f, %.6f (lon, lat)\n', leftTre
 fprintf('  Sample tree position (right, last): %.6f, %.6f (lon, lat)\n', rightTreesWGS84(end, 1), rightTreesWGS84(end, 2));
 
 %% Generate KML file
-kmlFile = fullfile(outputFolder, 'canyon_trees.kml');
+kmlFilename = sprintf('%s_%s.kml', placementMethod, objectName);
+kmlFile = fullfile(outputFolder, kmlFilename);
 fprintf('\nWriting KML file: %s\n', kmlFile);
 
 fid = fopen(kmlFile, 'w');
@@ -148,7 +150,7 @@ fprintf(fid, '  <Document>\n');
 fprintf(fid, '    <!-- Left boundary trees -->\n');
 for i = 1:numTrees
     fprintf(fid, '    <Placemark>\n');
-    fprintf(fid, '      <name>%s</name>\n', treeName);
+    fprintf(fid, '      <name>%s</name>\n', objectName);
     fprintf(fid, '      <Point>\n');
     fprintf(fid, '        <coordinates>\n');
     fprintf(fid, '          %.14f,%.14f,0\n', leftTreesWGS84(i, 1), leftTreesWGS84(i, 2));
@@ -161,7 +163,7 @@ end
 fprintf(fid, '    <!-- Right boundary trees -->\n');
 for i = 1:numTrees
     fprintf(fid, '    <Placemark>\n');
-    fprintf(fid, '      <name>%s</name>\n', treeName);
+    fprintf(fid, '      <name>%s</name>\n', objectName);
     fprintf(fid, '      <Point>\n');
     fprintf(fid, '        <coordinates>\n');
     fprintf(fid, '          %.14f,%.14f,0\n', rightTreesWGS84(i, 1), rightTreesWGS84(i, 2));
